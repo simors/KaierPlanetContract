@@ -89,19 +89,26 @@ contract KaierPlanet is ERC20Interface, Owned {
     string 	public  name;
     uint8 	public 	decimals;
     uint 	public 	_totalSupply;
-	// Balances for each account
+    uint    public  _totalCrystal;
+    uint    public  _periodSupply;
+
 	mapping(address => uint) balances;
 	mapping(address => mapping(address => uint)) allowed;
+    mapping(address => uint) public crystals;
+    mapping (uint => mapping (address => bool))  public  claimed;
 
+
+    event LogClaim    (uint window, address user, uint amount);
 
     // ------------------------------------------------------------------------
     // Constructor
     // ------------------------------------------------------------------------
-    function KaierPlanet() public {
+    function KaierPlanet() {
     	symbol = "KAIER";
         name = "kaierPlanet Supply Token";
         decimals = 18;
         _totalSupply = 1000000 * 10**uint(decimals);
+        _periodSupply = 1000 * 10**uint(decimals);
         balances[owner] = _totalSupply;
         Transfer(address(0), owner, _totalSupply);
 	}
@@ -169,5 +176,47 @@ contract KaierPlanet is ERC20Interface, Owned {
     // ------------------------------------------------------------------------
     function allowance(address tokenOwner, address spender) public constant returns (uint remaining) {
         return allowed[tokenOwner][spender];
+    }
+
+    // ------------------------------------------------------------------------
+    // Get the crystals balance for account `tokenOwner`
+    // ------------------------------------------------------------------------
+    function getCrystal(address tokenOwner) public constant returns (uint balance) {
+        return crystals[tokenOwner];
+    }
+
+    // ------------------------------------------------------------------------
+    // add the crystals balance for account `tokenOwner`
+    // ------------------------------------------------------------------------
+    function addCrystal(uint crystal) public returns (uint balance) {
+        require(crystal >= 0);
+        crystals[msg.sender] = crystals[msg.sender].add(crystal);
+        _totalCrystal = _totalCrystal.add(crystal);
+        return crystals[msg.sender];
+    }
+
+    // ------------------------------------------------------------------------
+    // get total crystals balance 
+    // ------------------------------------------------------------------------
+    function totalCrystal() public returns (uint amount) {
+        return _totalCrystal;
+    }
+
+    // ------------------------------------------------------------------------
+    // get period crystals supply  
+    // ------------------------------------------------------------------------
+    function periodSupply() public returns (uint amount) {
+        return _periodSupply;
+    }
+
+    function claim(uint period) public returns (uint balance) {
+        if(claimed[period][msg.sender]) {
+            return;
+        }
+        uint reward = _periodSupply.div(_totalCrystal).mul(crystals[msg.sender]);
+        transferFrom(owner, msg.sender, reward);
+
+        claimed[period][msg.sender] = true;
+        LogClaim(period, msg.sender, reward);
     }
 }
