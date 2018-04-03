@@ -83,37 +83,48 @@ contract Owned {
 // KaierPlanet Token
 // ----------------------------------------------------------------------------
 contract KaierPlanet is ERC20Interface, Owned {
-	using SafeMath for uint;
+    using SafeMath for uint;
 
-    string 	public 	symbol;
-    string 	public  name;
-    uint8 	public 	decimals;
-    uint 	public 	_totalSupply;
+    string  public  symbol;
+    string  public  name;
+    uint8   public  decimals;
+
+    uint    public  _totalSupply;
     uint    public  _totalCrystal;
-    uint    public  _periodSupply;
+    uint    public  openTime;             // Time of opening
+    uint    public  period;               // period of claim
 
-	mapping(address => uint) balances;
-	mapping(address => mapping(address => uint)) allowed;
+    mapping(address => uint) balances;
+    mapping(address => mapping(address => uint)) allowed;
     mapping(address => uint) public crystals;
-    mapping (uint => mapping (address => bool))  public  claimed;
+    mapping(address => uint256[]) public preClaimList;  //地址待申领token列表
 
+    address[] userAddress;
 
-    event LogClaim    (uint window, address user, uint amount);
+    event LogRegister (address user);
 
     // ------------------------------------------------------------------------
     // Constructor
     // ------------------------------------------------------------------------
-    function KaierPlanet() {
-    	symbol = "KAIER";
-        name = "kaierPlanet Supply Token";
-        decimals = 18;
-        _totalSupply = 1000000 * 10**uint(decimals);
-        _periodSupply = 1000 * 10**uint(decimals);
+    function KaierPlanet(
+        uint     _openTime,
+        uint     _period
+        ) {
+        symbol      = "KAIER";
+        name        = "kaierPlanet Supply Token";
+        decimals    = 18;
+        openTime    = _openTime;
+        period      = _period;
+        _totalSupply    = 1000000000 * 10**uint(decimals);
         balances[owner] = _totalSupply;
         Transfer(address(0), owner, _totalSupply);
-	}
+    }
 
-	// ------------------------------------------------------------------------
+    function time() constant returns (uint) {
+        return block.timestamp;
+    }
+
+    // ------------------------------------------------------------------------
     // Total supply
     // ------------------------------------------------------------------------
     function totalSupply() public constant returns (uint) {
@@ -179,10 +190,11 @@ contract KaierPlanet is ERC20Interface, Owned {
     }
 
     // ------------------------------------------------------------------------
-    // Get the crystals balance for account `tokenOwner`
+    // register wallet address
     // ------------------------------------------------------------------------
-    function getCrystal(address tokenOwner) public constant returns (uint balance) {
-        return crystals[tokenOwner];
+    function register(address user) public returns (bool success) {
+        userAddress.push(user);
+        return true;
     }
 
     // ------------------------------------------------------------------------
@@ -191,32 +203,68 @@ contract KaierPlanet is ERC20Interface, Owned {
     function addCrystal(uint crystal) public returns (uint balance) {
         require(crystal >= 0);
         crystals[msg.sender] = crystals[msg.sender].add(crystal);
-        _totalCrystal = _totalCrystal.add(crystal);
         return crystals[msg.sender];
     }
 
     // ------------------------------------------------------------------------
     // get total crystals balance 
     // ------------------------------------------------------------------------
-    function totalCrystal() public returns (uint amount) {
-        return _totalCrystal;
-    }
-
-    // ------------------------------------------------------------------------
-    // get period crystals supply  
-    // ------------------------------------------------------------------------
-    function periodSupply() public returns (uint amount) {
-        return _periodSupply;
-    }
-
-    function claim(uint period) public returns (uint balance) {
-        if(claimed[period][msg.sender]) {
-            return;
+    function totalCrystal() public returns (uint) {
+        uint totalCrystals = 0;
+        for (uint i = 0; i < userAddress.length; i++) {
+            if (preClaimList[userAddress[i]].length < 18) {
+                totalCrystals = totalCrystals.add(crystals[userAddress[i]]);
+            }
         }
-        uint reward = _periodSupply.div(_totalCrystal).mul(crystals[msg.sender]);
-        transferFrom(owner, msg.sender, reward);
+        return totalCrystals;
+    }
 
-        claimed[period][msg.sender] = true;
-        LogClaim(period, msg.sender, reward);
+    // ------------------------------------------------------------------------
+    // get period token supply,  all token claimed over in 3 years,  periodSupply
+    // reduce by half yearly.
+    // ------------------------------------------------------------------------
+    function getPeriodSupply(uint timestamp) public returns (uint) {
+        if (timestamp < openTime) {
+            return 0;
+        } else if (timestamp.sub(openTime) < 1 years) {
+            return 160000;
+        } else if (timestamp.sub(openTime) < 2 years) {
+            return 80000;
+        } else if (timestamp.sub(openTime) < 3 years) {
+            return 40000;
+        } else {
+            return 0;
+        }
+    }
+
+    function getPreClaimList(address user) public returns (uint[]) {
+        return preClaimList[user];
+    }
+
+    function preClaim(address user) internal returns(bool success) {
+        if(preClaimList[user].length < 18) {
+            uint periodSupply = getPeriodSupply(time());
+            uint totalCrystals = totalCrystal();
+            uint reward = periodSupply.div(totalCrystals).mul(crystals[user]);
+            preClaimList[user].push(reward);
+        } else {
+            preClaimList[user] = new uint[](0);
+        }
+        return true;
+    }
+
+    function preClaimAll() public returns(bool success) {
+        for (uint i = 0; i < userAddress.length; i++) {
+            preClaim(userAddress[i]);
+        }
+        return true;
+    }
+
+    function claim(address user) public returns (uint balance) {
+        uint total = 0;
+        for (uint i = 0; i < preClaimList[user].length; i++) {
+            total = total.add(preClaimList[user][i]);
+        }
+        transfer(user, total);
     }
 }
